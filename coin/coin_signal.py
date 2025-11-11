@@ -53,6 +53,7 @@ def add_sma(df, windows=(5, 10, 15, 20), price_col="close"):
         df[f"mov{w}"] = df[price_col].rolling(window=w, min_periods=1).mean()
     return df
 # %%
+# %%
 def calc_trade_point(df):
     col_tot = df.columns.tolist()
     col_mov = [cnow for cnow in col_tot if 'mov' in cnow]
@@ -63,8 +64,8 @@ def calc_trade_point(df):
         cdiff = 'c'+ynow+'_diff'
         df[mdiff] = df[cnow].diff()
         df[cdiff] = df['mov5'] - df[cnow]
-        # df[cdiff] = df['mov15'] - df[cnow]
-        
+        # df[cdiff] = df['mov15'] - df[cnow]b
+
         # df[cnow].iloc[1] - df[cnow].iloc[0]
     # df['c5_diff'] = df['close'] - df['mov5']
     return df
@@ -74,15 +75,17 @@ def get_flag(df):
     매도: mov5가 하강이면서 mov 10 역전
     다만 최초 포인트에서만 매수하고 매도해야됨
     '''
-    
+
     df['buy_flag'] = 0
     df.loc[(df['5diff']>=0)&(df['c10_diff']>=0),'buy_flag'] = 1
     df.loc[(df['5diff']<=0)&(df['c10_diff']<=0),'buy_flag'] = -1
     return df
+
 # %%
 
 if __name__ == "__main__":
-    market = "KRW-BTC"
+   # market = "KRW-BTC"
+    market = "KRW-ETH"
     df = fetch_upbit_daily(market=market, count=200)  # 필요 시 더 늘릴 수 있음(최대 200)
     df = add_sma(df, windows=(5, 10, 15,20))
     
@@ -92,9 +95,10 @@ if __name__ == "__main__":
     last = df.iloc[-1]
     print(f"[{market}] {last['date_kst'].date()} 종가: {last['close']:,.0f} KRW")
     # print(f"  SMA5 : {last['SMA5']:,.0f}  | SMA10: {last['SMA10']:,.0f}  | SMA20: {last['SMA20']:,.0f}")
+
 # %%
     # 간단 차트 (원하면 주석 해제)
-    %matplotlib qt5
+    # %matplotlib qt5
     # plt.figure(figsize=(11,5))
     plt.figure()
     a1 = plt.subplot(2,1,1)
@@ -105,7 +109,7 @@ if __name__ == "__main__":
     # plt.plot(df["date_kst"], df["mov15"], label="mov 15")
     # plt.plot(df["date_kst"], df["mov20"], label="mov 20")
     a11.plot(df["date_kst"], df["buy_flag"], label="buy flag")
-    plt.title(f"{market} 일봉 & 5/10/20일 이동평균 (Upbit)")
+    # plt.title(f"{market} 일봉 & 5/10/20일 이동평균 (Upbit)")
     plt.xlabel("Date (KST)")
     plt.ylabel("Price (KRW)")
     plt.legend()
@@ -122,4 +126,3 @@ if __name__ == "__main__":
     
     
     plt.tight_layout()
-
