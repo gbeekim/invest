@@ -6,7 +6,9 @@ Created on Mon Nov 10 22:05:16 2025
 """
 
 # pip install requests pandas matplotlib
+
 import requests
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime, timezone
@@ -54,6 +56,12 @@ def add_sma(df, windows=(5, 10, 15, 20), price_col="close"):
     return df
 # %%
 # %%
+# %%
+'''
+    매수: mov5가 상승이면서 mov 10 혹은 mov 15와 역전
+    매도: mov5가 하강이면서 mov 10 역전
+    다만 최초 포인트에서만 매수하고 매도해야됨
+    '''
 def calc_trade_point(df):
     col_tot = df.columns.tolist()
     col_mov = [cnow for cnow in col_tot if 'mov' in cnow]
@@ -70,59 +78,118 @@ def calc_trade_point(df):
     # df['c5_diff'] = df['close'] - df['mov5']
     return df
 def get_flag(df):
-    '''
-    매수: mov5가 상승이면서 mov 10 혹은 mov 15와 역전
-    매도: mov5가 하강이면서 mov 10 역전
-    다만 최초 포인트에서만 매수하고 매도해야됨
-    '''
-
-    df['buy_flag'] = 0
+    df['buy_flag'] = np.nan
     df.loc[(df['5diff']>=0)&(df['c10_diff']>=0),'buy_flag'] = 1
     df.loc[(df['5diff']<=0)&(df['c10_diff']<=0),'buy_flag'] = -1
+    df['buy_flag'] = df['buy_flag'].fillna(method='ffill')
     return df
-
+def get_profit(df):
+    df_first = df.loc[df['buy_flag']==1,:].groupby('cyc_cnt').first().reset_index().copy()
+    df_first = df_first.rename(columns={'buy_flag':'buy_flag_f','close':'close_f','mov5':'mov5_f','mov10':'mov10_f'})
+    df_last = df.loc[df['buy_flag']==1,:].groupby('cyc_cnt').last().reset_index().copy()
+    df_last = df_last.rename(columns={'buy_flag':'buy_flag_l','close':'close_l','mov5':'mov5_l','mov10':'mov10_l'})
+    
+    df_res = pd.merge(df_first[['cyc_cnt','buy_flag_f','close_f','mov5_f','mov10_f']],
+                  df_last[['cyc_cnt','buy_flag_l','close_l','mov5_l','mov10_l']],on='cyc_cnt')
+    df_res['profit'] = df_res['close_l'] - df_res['close_f']
+    df_res['profit_rate'] = df_res['profit'] / df_res['close_f']
+    
+    return df_res
 # %%
 
-if __name__ == "__main__":
-   # market = "KRW-BTC"
-    market = "KRW-ETH"
-    df = fetch_upbit_daily(market=market, count=200)  # 필요 시 더 늘릴 수 있음(최대 200)
-    df = add_sma(df, windows=(5, 10, 15,20))
-    
-    df = calc_trade_point(df)
-    df = get_flag(df)
-    # 최신 값 출력
-    last = df.iloc[-1]
-    print(f"[{market}] {last['date_kst'].date()} 종가: {last['close']:,.0f} KRW")
-    # print(f"  SMA5 : {last['SMA5']:,.0f}  | SMA10: {last['SMA10']:,.0f}  | SMA20: {last['SMA20']:,.0f}")
+# if __name__ == "__main__":
+market = "KRW-BTC"
+# market = "KRW-ETH"
+df = fetch_upbit_daily(market=market, count=200)  # 필요 시 더 늘릴 수 있음(최대 200)
+df = add_sma(df, windows=(5, 10, 15,20))
+
+df = calc_trade_point(df)
+df = get_flag(df)
+# 최신 값 출력
+last = df.iloc[-1]
+print(f"[{market}] {last['date_kst'].date()} 종가: {last['close']:,.0f} KRW")
+# print(f"  SMA5 : {last['SMA5']:,.0f}  | SMA10: {last['SMA10']:,.0f}  | SMA20: {last['SMA20']:,.0f}")
 
 # %%
-    # 간단 차트 (원하면 주석 해제)
-    # %matplotlib qt5
-    # plt.figure(figsize=(11,5))
-    plt.figure()
-    a1 = plt.subplot(2,1,1)
-    a11 = a1.twinx()
-    a1.plot(df["date_kst"], df["close"],'.-', label="Close")
-    a1.plot(df["date_kst"], df["mov5"], label="mov 5")
-    a1.plot(df["date_kst"], df["mov10"], label="mov 10")
-    # plt.plot(df["date_kst"], df["mov15"], label="mov 15")
-    # plt.plot(df["date_kst"], df["mov20"], label="mov 20")
-    a11.plot(df["date_kst"], df["buy_flag"], label="buy flag")
-    # plt.title(f"{market} 일봉 & 5/10/20일 이동평균 (Upbit)")
-    plt.xlabel("Date (KST)")
-    plt.ylabel("Price (KRW)")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    a2=plt.subplot(2,1,2,sharex=a1)
-    a2.plot(df['date_kst'],df['c5_diff'],'.:')
-    a2.plot(df['date_kst'],df['c10_diff'],'.:')
-    a2.plot(df['date_kst'],df['c15_diff'],'.:')
-    a22 = a2.twinx()
-    a22.plot(df['date_kst'],df['5diff'],'.-')
-    a22.plot(df['date_kst'],df['10diff'],'.-')
-    a22.plot(df['date_kst'],df['15diff'],'.-')
-    plt.grid()
-    
-    
-    plt.tight_layout()
+# 간단 차트 (원하면 주석 해제)
+%matplotlib qt5
+# plt.figure(figsize=(11,5))
+plt.figure()
+a1 = plt.subplot(2,1,1)
+a11 = a1.twinx()
+a1.plot(df["date_kst"], df["close"],'.-', label="Close")
+a1.plot(df["date_kst"], df["mov5"], label="mov 5")
+a1.plot(df["date_kst"], df["mov10"], label="mov 10")
+# plt.plot(df["date_kst"], df["mov15"], label="mov 15")
+# plt.plot(df["date_kst"], df["mov20"], label="mov 20")
+a11.plot(df["date_kst"], df["buy_flag"], label="buy flag")
+# plt.title(f"{market} 일봉 & 5/10/20일 이동평균 (Upbit)")
+plt.xlabel("Date (KST)")
+plt.ylabel("Price (KRW)")
+plt.legend()
+plt.grid(True, alpha=0.3)
+a2=plt.subplot(2,1,2,sharex=a1)
+a2.plot(df['date_kst'],df['c5_diff'],'.:')
+a2.plot(df['date_kst'],df['c10_diff'],'.:')
+a2.plot(df['date_kst'],df['c15_diff'],'.:')
+a22 = a2.twinx()
+a22.plot(df['date_kst'],df['5diff'],'.-')
+a22.plot(df['date_kst'],df['10diff'],'.-')
+a22.plot(df['date_kst'],df['15diff'],'.-')
+plt.grid()
+plt.suptitle(market)
+plt.tight_layout()
+# %%
+df['cdiff'] = df['close']
+df['bf_diff'] = df['buy_flag'].diff()
+plt.figure()
+plt.plot(df['date_kst'],df['buy_flag'],'.-')
+plt.plot(df['date_kst'],df['bf_diff'],'.')
+# %% get cyc
+df['cyc_cnt'] = 0
+df.loc[df['bf_diff']==2,'cyc_cnt']=1
+df['cyc_cnt'] = df['cyc_cnt'].cumsum()
+
+# %%
+plt.figure()
+a1 = plt.subplot(1,1,1)
+a1.plot(df['date_kst'],df['buy_flag'],'.-')
+a11 = a1.twinx()
+a11.plot(df['date_kst'],df['cyc_cnt'],'.')
+# %%
+df_first = df.loc[df['buy_flag']==1,:].groupby('cyc_cnt').first().reset_index().copy()
+df_first = df_first.rename(columns={'buy_flag':'buy_flag_f','close':'close_f','mov5':'mov5_f','mov10':'mov10_f'})
+df_last = df.loc[df['buy_flag']==-1,:].groupby('cyc_cnt').first().reset_index().copy()
+df_last = df_last.rename(columns={'buy_flag':'buy_flag_l','close':'close_l','mov5':'mov5_l','mov10':'mov10_l'})
+
+df_res = pd.merge(df_first[['cyc_cnt','buy_flag_f','close_f','mov5_f','mov10_f']],
+              df_last[['cyc_cnt','buy_flag_l','close_l','mov5_l','mov10_l']],on='cyc_cnt')
+df_res['profit'] = df_res['close_l'] - df_res['close_f']
+df_res['profit_rate'] = df_res['profit'] / df_res['close_f']
+# %%
+plt.figure()
+plt.plot(df_res['cyc_cnt'],df_res['profit_rate'],'.-')
+plt.grid()
+plt.title(df_res['profit_rate'].sum())
+# %%
+f_ind = df.loc[df['buy_flag']==1,:].groupby('cyc_cnt').head(1).index
+t_ind = df.loc[df['buy_flag']==-1,:].groupby('cyc_cnt').head(1).index
+df['flag'] = 0
+df.loc[f_ind,'flag'] =1
+df.loc[t_ind,'flag'] =-1
+df_buy = df.loc[f_ind,:].copy()
+df_sell = df.loc[t_ind,:].copy()
+# %%
+
+plt.figure()
+plt.subplot()
+plt.plot(df["date_kst"], df["close"],'.-', label="Close")
+plt.plot(df["date_kst"], df["mov5"], label="mov 5")
+plt.plot(df["date_kst"], df["mov10"], label="mov 10")
+plt.plot(df["date_kst"], df["mov15"], label="mov 15")
+plt.plot(df["date_kst"], df["mov20"], label="mov 20")
+plt.plot(df_buy['date_kst'],df_buy['close'],'c*',label='buy')
+plt.plot(df_sell['date_kst'],df_sell['close'],'r*',label='sell')
+plt.legend()
+plt.grid()
+
