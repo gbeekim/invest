@@ -112,7 +112,7 @@ print(f"[{market}] {last['date_kst'].date()} 종가: {last['close']:,.0f} KRW")
 
 # %%
 # 간단 차트 (원하면 주석 해제)
-%matplotlib qt5
+# %matplotlib qt5
 # plt.figure(figsize=(11,5))
 plt.figure()
 a1 = plt.subplot(2,1,1)
@@ -124,9 +124,13 @@ a1.plot(df["date_kst"], df["mov10"], label="mov 10")
 # plt.plot(df["date_kst"], df["mov20"], label="mov 20")
 a11.plot(df["date_kst"], df["buy_flag"], label="buy flag")
 # plt.title(f"{market} 일봉 & 5/10/20일 이동평균 (Upbit)")
+lines_1, labels_1 = a1.get_legend_handles_labels()
+lines_11, labels_11 = a11.get_legend_handles_labels()
+
+
 plt.xlabel("Date (KST)")
 plt.ylabel("Price (KRW)")
-plt.legend()
+a1.legend(lines_1 + lines_2, labels_1 + labels_2, loc='upper left')
 plt.grid(True, alpha=0.3)
 a2=plt.subplot(2,1,2,sharex=a1)
 a2.plot(df['date_kst'],df['c5_diff'],'.:')
