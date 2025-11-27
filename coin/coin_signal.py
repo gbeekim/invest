@@ -115,6 +115,7 @@ def calc_trade_point(df):
     col_tot = df.columns.tolist()
     col_mov = [cnow for cnow in col_tot if 'mov' in cnow]
     df['cdiff'] = df['close'].diff()
+    col_add = []
     for i in range(len(col_mov)):#i=0
         cnow = col_mov[i]
         ynow = cnow.split('mov')[-1]
@@ -125,10 +126,11 @@ def calc_trade_point(df):
         df[cdiff] = df['mov5'] - df[cnow]
         df[cdiff2] = df[cdiff].shift(1)
         # df[cdiff] = df['mov15'] - df[cnow]b
+        col_add = col_add+[cnow,mdiff,cdiff,cdiff2]
 
         # df[cnow].iloc[1] - df[cnow].iloc[0]
     # df['c5_diff'] = df['close'] - df['mov5']
-    return df
+    return df,col_add
 plt.close('all')
 def get_flag(df):
     df['buy_flag'] = np.nan
@@ -172,12 +174,12 @@ def get_profit(df):
 market = "KRW-BTC"
 # market = "KRW-ETH"
 # df = fetch_upbit_daily(market=market, count=200)  # 필요 시 더 늘릴 수 있음(최대 200)
-df = fetch_upbit_days(market=market, limit=2000)  # 필요 시 더 늘릴 수 있음(최대 200)
+df = fetch_upbit_days(market=market, limit=500)  # 필요 시 더 늘릴 수 있음(최대 200)
 col_tot = df.columns.tolist()
 df[['open','high','low','close']] = df[['open','high','low','close']]/1000000
 df = add_sma(df, windows=(5, 10, 15,20))
 
-df = calc_trade_point(df)
+df, col_add = calc_trade_point(df)
 df = get_flag(df)
 df, df_res = get_profit(df)
 
@@ -312,3 +314,18 @@ plt.grid()
 # %%
 df_res.shape
 df_res['profit_rate'].sum()
+df_res['cyc_cnt']
+
+
+df_feat = pd.merge(df_buy,df_res[['cyc_cnt','profit','profit_rate','close_f','close_l']],on='cyc_cnt')
+
+
+col_info = ['date_kst','profit','profit_rate','close_f','close_l']
+df_feat_ext = df_feat[col_add].copy()
+# df_feat_ext = df_feat_ext/df_feat_ext['mov5']
+df_feat_ext[col_add] = df_feat_ext.div(df_feat_ext['mov5'],axis=0)
+df_feat_ext = pd.concat([df_feat[col_info],df_feat_ext],axis=1)
+df_feat_ext1 = df_feat_ext[col_add+['profit_rate']] 
+df_corr = df_feat_ext1.corr()
+# %%
+
