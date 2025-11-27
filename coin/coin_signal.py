@@ -329,3 +329,5 @@ df_feat_ext1 = df_feat_ext[col_add+['profit_rate']]
 df_corr = df_feat_ext1.corr()
 # %%
 
+df_te = df.iloc[-2:,:].copy()
+df_te[col_add] = df_te[col_add].div(df_te['mov5'],axis=0)
