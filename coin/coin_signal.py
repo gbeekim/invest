@@ -11,10 +11,53 @@ import requests
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
-UPBIT_DAILY_URL = "https://api.upbit.com/v1/candles/days"
+UPBIT_URL = "https://api.upbit.com/v1/candles/days"
+# %%
+def fetch_upbit_days(market="KRW-BTC", limit=1000):
+    """
+    Upbit 일봉을 여러 번 호출해서 과거 데이터까지 불러오기
+    limit: 전체 가져올 최대 개수 (200단위로 쪼개서 반복)
+    """
+    headers = {"User-Agent": "Mozilla/5.0"}
+    all_data = []
+    to = None  # 처음엔 최신부터
 
+    while len(all_data) < limit:
+        count = min(200, limit - len(all_data))
+        params = {"market": market, "count": count}
+        if to:
+            params["to"] = to.isoformat().replace("+00:00", "Z")  # UTC ISO 형식
+
+        r = requests.get(UPBIT_URL, headers=headers, params=params, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        if not data:
+            break
+
+        all_data.extend(data)
+
+        # 다음 요청용: 가장 오래된 캔들의 UTC 시간 - 1초
+        oldest = datetime.fromisoformat(data[-1]["candle_date_time_utc"].replace("Z", "+00:00"))
+        to = oldest - timedelta(seconds=1)
+
+        if len(data) < count:
+            break  # 더 이상 데이터 없음
+
+    df = pd.DataFrame(all_data)
+    df = df.rename(columns={
+        "candle_date_time_kst": "date_kst",
+        "trade_price": "close",
+        "opening_price": "open",
+        "high_price": "high",
+        "low_price": "low",
+        "candle_acc_trade_volume": "volume"
+    })
+    df["date_kst"] = pd.to_datetime(df["date_kst"])
+    df = df.sort_values("date_kst").reset_index(drop=True)
+    return df
+# %%
 def fetch_upbit_daily(market="KRW-BTC", count=200):
     """
     업비트 일봉 캔들 가져오기 (최신→과거 순으로 옴)
@@ -27,7 +70,7 @@ def fetch_upbit_daily(market="KRW-BTC", count=200):
     # params = {"market": market, "count": count,"to":time_end}
     params = {"market": market, "count": count}
     
-    r = requests.get(UPBIT_DAILY_URL, headers=headers, params=params, timeout=10)
+    r = requests.get(UPBIT_URL, headers=headers, params=params, timeout=10)
     r.raise_for_status()
     data = r.json()  # 최신이 0번
     df = pd.DataFrame(data)
@@ -55,8 +98,8 @@ def add_sma(df, windows=(5, 10, 15, 20), price_col="close"):
         df[f"mov{w}"] = df[price_col].rolling(window=w, min_periods=1).mean()
     return df
 # %%
-df['close'].iloc[:5].mean()
-df['mov5'].iloc[:5].mean()
+# df['close'].iloc[:5].mean()
+# df['mov5'].iloc[:5].mean()
 # %%
 # %%
 
@@ -71,6 +114,7 @@ df['mov5'].iloc[:5].mean()
 def calc_trade_point(df):
     col_tot = df.columns.tolist()
     col_mov = [cnow for cnow in col_tot if 'mov' in cnow]
+    df['cdiff'] = df['close'].diff()
     for i in range(len(col_mov)):#i=0
         cnow = col_mov[i]
         ynow = cnow.split('mov')[-1]
@@ -89,10 +133,28 @@ plt.close('all')
 def get_flag(df):
     df['buy_flag'] = np.nan
     df.loc[(df['5diff']>=0)&(df['2c10_diff']<=0)&(df['c10_diff']>=0),'buy_flag'] = 1
+    # df.loc[(df['cdiff']>=0)&(df['5diff']>=0)&(df['2c10_diff']<=0)&(df['c10_diff']>=0),'buy_flag'] = 1
     df.loc[(df['5diff']<=0)&(df['2c10_diff']>=0)&(df['c10_diff']<=0),'buy_flag'] = -1
     df['buy_flag'] = df['buy_flag'].fillna(method='ffill')
+    df['bf_diff'] = df['buy_flag'].diff()
+    
+    df['cyc_cnt'] = 0
+    df.loc[df['bf_diff']==2,'cyc_cnt']=1
+    df['cyc_cnt'] = df['cyc_cnt'].cumsum()
+    
+    
     return df
+
+
+
+
 def get_profit(df):
+    df['oind'] = df.index.tolist()
+    f_ind = df.loc[df['buy_flag']==1,:].groupby('cyc_cnt').first()['oind']
+    l_ind = df.loc[df['buy_flag']==1,:].groupby('cyc_cnt').last()['oind']
+    df['trade_flag'] = np.nan
+    df.loc[f_ind,'trade_flag'] = 1
+    df.loc[l_ind,'trade_flag'] = -1
     df_first = df.loc[df['buy_flag']==1,:].groupby('cyc_cnt').first().reset_index().copy()
     df_first = df_first.rename(columns={'buy_flag':'buy_flag_f','close':'close_f','mov5':'mov5_f','mov10':'mov10_f'})
     df_last = df.loc[df['buy_flag']==1,:].groupby('cyc_cnt').last().reset_index().copy()
@@ -103,25 +165,33 @@ def get_profit(df):
     df_res['profit'] = df_res['close_l'] - df_res['close_f']
     df_res['profit_rate'] = df_res['profit'] / df_res['close_f']
     
-    return df_res
+    return df,df_res
 # %%
 
 # if __name__ == "__main__":
 market = "KRW-BTC"
 # market = "KRW-ETH"
-df = fetch_upbit_daily(market=market, count=200)  # 필요 시 더 늘릴 수 있음(최대 200)
+# df = fetch_upbit_daily(market=market, count=200)  # 필요 시 더 늘릴 수 있음(최대 200)
+df = fetch_upbit_days(market=market, limit=2000)  # 필요 시 더 늘릴 수 있음(최대 200)
+col_tot = df.columns.tolist()
+df[['open','high','low','close']] = df[['open','high','low','close']]/1000000
 df = add_sma(df, windows=(5, 10, 15,20))
 
 df = calc_trade_point(df)
 df = get_flag(df)
+df, df_res = get_profit(df)
+
 # 최신 값 출력
 last = df.iloc[-1]
 print(f"[{market}] {last['date_kst'].date()} 종가: {last['close']:,.0f} KRW")
 # print(f"  SMA5 : {last['SMA5']:,.0f}  | SMA10: {last['SMA10']:,.0f}  | SMA20: {last['SMA20']:,.0f}")
+# %%
+
+
 
 # %%
 # 간단 차트 (원하면 주석 해제)
-# %matplotlib qt5
+%matplotlib qt5
 # plt.figure(figsize=(11,5))
 plt.figure()
 a1 = plt.subplot(2,1,1)
@@ -170,9 +240,7 @@ plt.plot(df['date_kst'],df['buy_flag'],'.-')
 plt.plot(df['date_kst'],df['bf_diff'],'.')
 plt.grid()
 # %% get cyc
-df['cyc_cnt'] = 0
-df.loc[df['bf_diff']==2,'cyc_cnt']=1
-df['cyc_cnt'] = df['cyc_cnt'].cumsum()
+
 
 # %%
 plt.figure()
@@ -221,3 +289,26 @@ plt.plot(df_res['date_kst'],df_res['profit_rate'],'.')
 plt.grid()
 
 
+# %%
+plt.figure()
+a1 = plt.subplot(2,1,1)
+plt.plot(df["date_kst"], df["close"],'.-', label="Close")
+plt.plot(df["date_kst"], df["mov5"], label="mov 5")
+plt.plot(df["date_kst"], df["mov10"], label="mov 10")
+plt.plot(df["date_kst"], df["mov15"], label="mov 15")
+plt.plot(df["date_kst"], df["mov20"], label="mov 20")
+# plt.plot(df.loc[df['trade_flag']==1,'date_kst'],df.loc[df['trade_flag']==1,'close'],'c*',label='buy')
+# plt.plot(df.loc[df['trade_flag']==-1,'date_kst'],df.loc[df['trade_flag']==-1,'close'],'r*',label='sell')
+# plt.grid()
+
+plt.plot(df_buy['date_kst'],df_buy['close'],'c*',label='buy')
+plt.plot(df_sell['date_kst'],df_sell['close'],'r*',label='sell')
+plt.legend()
+plt.grid()
+plt.subplot(2,1,2,sharex=a1)
+plt.plot(df_res['date_kst'],df_res['profit_rate'],'.')
+plt.grid()
+
+# %%
+df_res.shape
+df_res['profit_rate'].sum()
